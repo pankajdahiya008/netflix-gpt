@@ -1,9 +1,9 @@
-import openai from "../utils/openai";
 import { useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import lang from "../utils/languageConstants";
 import { API_OPTIONS } from "../utils/constants";
 import { addGptMovieResult } from "../utils/gptSlice";
+import hfclient from "../utils/hfclient";
 
 const GptSearchBar = () => {
   const dispatch = useDispatch();
@@ -23,43 +23,55 @@ const GptSearchBar = () => {
     return json.results;
   };
 
-  const handleGptSearchClick = async () => {
-    console.log(searchText.current.value);
-    // Make an API call to GPT API and get Movie Results
+  const handleSearchClick = async () => {
+    try {
+      console.log(searchText.current.value);
+  
+      // Initialize Hugging Face client with your API key
+  
+      // Construct the prompt for movie recommendations
+      const query =
+        "Act as a Movie Recommendation system and suggest some movies for the query: " +
+        searchText.current.value +
+        ". Only give me names of 5 movies, comma-separated like the example result given ahead. Example Result: Gadar, Sholay, Don, Golmaal, Koi Mil Gaya";
+  
+      // Make the request to Hugging Face's chatCompletion model
+      const chatCompletion = await hfclient.chatCompletion({
+        model: 'meta-llama/Llama-3.2-3B-Instruct', // You can change this to any other model that fits your needs
+        messages: [
+          {
+            role: 'user',
+            content: query,
+          },
+        ],
+        max_tokens: 500,  // Adjust this based on how much response you want
+      });
+  
+      // Extract content from the response
+      const contentResponse = chatCompletion.choices[0].message.content;
+      console.log("Raw Response:", JSON.stringify(contentResponse));
 
-    const gptQuery =
-      "Act as a Movie Recommendation system and suggest some movies for the query : " +
-      searchText.current.value +
-      ". only give me names of 5 movies, comma seperated like the example result given ahead. Example Result: Gadar, Sholay, Don, Golmaal, Koi Mil Gaya";
-
-    const gptResults = await openai.chat.completions.create({
-      messages: [{ role: "user", content: gptQuery }],
-      model: "gpt-3.5-turbo",
-    });
-
-    if (!gptResults.choices) {
-      // TODO: Write Error Handling
+      // Extract the movie names from the content
+      const hfMovies = contentResponse
+      ?.split(",") // Split by commas
+      .map((movie) => movie.trim()); // Trim whitespace from each movie name
+  
+      console.log("Recommended Movies:", hfMovies);
+  
+      // Fetch details for each movie using TMDB API (or your preferred method)
+      const promiseArray = hfMovies.map((movie) => searchMovieTMDB(movie));
+      const tmdbResults = await Promise.all(promiseArray);
+  
+      console.log("TMDB Results:", tmdbResults);
+  
+      // Dispatch results to the store (adjust according to your state management)
+      dispatch(
+        addGptMovieResult({ movieNames: hfMovies, movieResults: tmdbResults })
+      );
+    } catch (error) {
+      console.error("Error fetching movie recommendations:", error);
+      // TODO: Implement better error handling logic
     }
-
-    console.log(gptResults.choices?.[0]?.message?.content);
-
-    // Andaz Apna Apna, Hera Pheri, Chupke Chupke, Jaane Bhi Do Yaaro, Padosan
-    const gptMovies = gptResults.choices?.[0]?.message?.content.split(",");
-
-    // ["Andaz Apna Apna", "Hera Pheri", "Chupke Chupke", "Jaane Bhi Do Yaaro", "Padosan"]
-
-    // For each movie I will search TMDB API
-
-    const promiseArray = gptMovies.map((movie) => searchMovieTMDB(movie));
-    // [Promise, Promise, Promise, Promise, Promise]
-
-    const tmdbResults = await Promise.all(promiseArray);
-
-    console.log(tmdbResults);
-
-    dispatch(
-      addGptMovieResult({ movieNames: gptMovies, movieResults: tmdbResults })
-    );
   };
 
   return (
@@ -76,7 +88,7 @@ const GptSearchBar = () => {
         />
         <button
           className="col-span-3 m-4 py-2 px-4 bg-red-700 text-white rounded-lg"
-          onClick={handleGptSearchClick}
+          onClick={handleSearchClick}
         >
           {lang[langKey].search}
         </button>
